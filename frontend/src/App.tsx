@@ -1,9 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { VideoPlayer } from './components/VideoPlayer';
 import { DetectionHistory } from './components/DetectionHistory';
 import { SourceSelector, type MediaSource } from './components/SourceSelector';
 import type { PlateRecord, StreamFrame } from './types';
-import { Search, ShieldAlert } from 'lucide-react';
 
 // Random plate generator for mock data
 const generatePlate = () => {
@@ -18,16 +17,88 @@ export default function App() {
   const [streamData, setStreamData] = useState<StreamFrame | null>(null);
   const [history, setHistory] = useState<PlateRecord[]>([]);
   const [mediaSource, setMediaSource] = useState<MediaSource | null>(null);
+  const [isProcessing, setIsProcessing] = useState(false);
 
-  // Mock WebSocket Connection
+  // Handle source selection and trigger analysis if it's an image
   useEffect(() => {
-    let frameCount = 0;
-    
-    const interval = setInterval(() => {
-      frameCount++;
+    if (mediaSource?.type === 'image' && mediaSource.file) {
+      handleImageAnalysis(mediaSource.file);
+    }
+  }, [mediaSource]);
+
+  const handleImageAnalysis = async (file: File) => {
+    setIsProcessing(true);
+    const formData = new FormData();
+    formData.append('file', file);
+
+    try {
+      const response = await fetch('http://localhost:8000/analyze-image', {
+        method: 'POST',
+        body: formData,
+      });
+
+      if (!response.ok) throw new Error('Analysis failed');
+
+      const data = await response.json();
       
-      // 1. Simulate video frame metadata (bounding boxes moving)
-      // Base positions that slowly shift
+      // Map backend response to StreamFrame
+      const frame: StreamFrame = {
+        camera_id: 'LOCAL-UPLOAD',
+        timestamp: Date.now() / 1000,
+        frame_id: 1,
+        objects: data.detections.map((det: any, index: number) => ({
+          id: `det_${index}`,
+          track_id: index + 1,
+          type: det.type,
+          // Backend returns [x1, y1, x2, y2], frontend wants {x, y, width, height}
+          bbox: {
+            x: det.bbox[0],
+            y: det.bbox[1],
+            width: det.bbox[2] - det.bbox[0],
+            height: det.bbox[3] - det.bbox[1]
+          },
+          confidence: det.confidence,
+          plate_text: det.license_plate || undefined
+        }))
+      };
+
+      setStreamData(frame);
+
+      // Add to history if a plate was found
+      data.detections.forEach((det: any) => {
+        if (det.license_plate) {
+          const newRecord: PlateRecord = {
+            id: `rec_${Date.now()}_${Math.random()}`,
+            plate_text: det.license_plate,
+            camera_id: 'LOCAL-UPLOAD',
+            timestamp: Date.now() / 1000,
+            confidence: 0.95
+          };
+          setHistory(prev => [newRecord, ...prev].slice(0, 50));
+        }
+      });
+
+    } catch (error) {
+      console.error('Error analyzing image:', error);
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  // Mock WebSocket Connection (Only active if no real media source is selected or if it's a stream)
+  useEffect(() => {
+    if (mediaSource?.type === 'image') {
+      console.log('Disabling mock data for image analysis');
+      return;
+    }
+    
+    let frameCount = 0;
+    const interval = setInterval(() => {
+      // Simulation logic...
+      frameCount++;
+      // ... (code omitted for brevity in thought, but I must include the actual code in replacement)
+      // Wait, I should include the actual code to avoid breaking the file.
+      
       const baseX = 800 + Math.sin(frameCount * 0.05) * 400;
       const baseY = 400 + Math.cos(frameCount * 0.05) * 100;
       
@@ -46,21 +117,17 @@ export default function App() {
         ]
       };
 
-      // Occasionally add a license plate detection (1 in 30 frames simulate highly confident read)
       if (frameCount % 45 === 0) {
         const newPlateText = generatePlate();
-        
-        // Add plate to current frame objects
         frame.objects.push({
           id: `p_${frameCount}`,
-          track_id: 1042, // Associated with vehicle
+          track_id: 1042,
           type: 'plate',
           bbox: { x: baseX + 150, y: baseY + 250, width: 120, height: 40 },
           confidence: 0.98 + (Math.random() * 0.01),
           plate_text: newPlateText
         });
         
-        // Add to history
         const newRecord: PlateRecord = {
           id: `rec_${Date.now()}`,
           plate_text: newPlateText,
@@ -68,15 +135,17 @@ export default function App() {
           timestamp: Date.now() / 1000,
           confidence: 0.98
         };
-        
-        setHistory(prev => [newRecord, ...prev].slice(0, 50)); // Keep last 50
+        setHistory(prev => [newRecord, ...prev].slice(0, 50));
       }
       
       setStreamData(frame);
     }, 1000 / 30);
 
-    return () => clearInterval(interval);
-  }, []);
+    return () => {
+      console.log('Clearing mock interval');
+      clearInterval(interval);
+    };
+  }, [mediaSource]);
 
   return (
     <div className="flex h-screen w-full bg-dark-900 text-slate-200 overflow-hidden font-sans">
@@ -103,12 +172,22 @@ export default function App() {
           <div className="grid grid-cols-1 lg:grid-cols-3 xl:grid-cols-4 gap-6">
             {/* Main Video Stream */}
             <div className="lg:col-span-2 xl:col-span-3">
-              <VideoPlayer 
-                name={mediaSource ? mediaSource.name : "Camera AI Cổng chính"}
-                streamData={streamData}
-                status={mediaSource && mediaSource.type === 'stream' ? 'live' : mediaSource ? 'live' : 'offline'}
-                source={mediaSource}
-              />
+              <div className="relative">
+                {isProcessing && (
+                  <div className="absolute inset-0 bg-black/50 backdrop-blur-sm z-20 flex items-center justify-center rounded-xl">
+                    <div className="flex flex-col items-center">
+                      <div className="w-10 h-10 border-4 border-primary-500 border-t-transparent rounded-full animate-spin mb-3"></div>
+                      <p className="text-white font-medium">Đang phân tích hình ảnh...</p>
+                    </div>
+                  </div>
+                )}
+                <VideoPlayer 
+                  name={mediaSource ? mediaSource.name : "Camera AI Cổng chính"}
+                  streamData={streamData}
+                  status={mediaSource && mediaSource.type === 'stream' ? 'live' : mediaSource ? 'live' : 'offline'}
+                  source={mediaSource}
+                />
+              </div>
             </div>
 
             {/* Side Panel: Detection History */}
@@ -121,16 +200,3 @@ export default function App() {
     </div>
   );
 }
-
-const HistoryIcon = ({ className }: { className?: string }) => (
-  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
-    <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/>
-    <path d="M3 3v5h5"/><path d="M12 7v5l4 2"/>
-  </svg>
-);
-
-const ListIcon = ({ className }: { className?: string }) => (
-  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
-    <line x1="8" y1="6" x2="21" y2="6"></line><line x1="8" y1="12" x2="21" y2="12"></line><line x1="8" y1="18" x2="21" y2="18"></line><line x1="3" y1="6" x2="3.01" y2="6"></line><line x1="3" y1="12" x2="3.01" y2="12"></line><line x1="3" y1="18" x2="3.01" y2="18"></line>
-  </svg>
-);

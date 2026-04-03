@@ -8,7 +8,7 @@ export interface BoundingBox {
 export interface Detection {
   id: string;
   track_id: number;
-  type: 'vehicle' | 'plate';
+  type: string;
   bbox: BoundingBox;
   confidence: number;
   plate_text?: string;

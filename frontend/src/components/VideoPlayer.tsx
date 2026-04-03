@@ -13,10 +13,16 @@ interface VideoPlayerProps {
 export const VideoPlayer: React.FC<VideoPlayerProps> = ({ name, streamData, status, source }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const mediaRef = useRef<HTMLVideoElement | HTMLImageElement>(null);
+  const [naturalDimensions, setNaturalDimensions] = React.useState({ width: 1920, height: 1080 });
   
-  // Real dimensions of the actual source video (mocking 1920x1080)
-  const videoWidth = 1920;
-  const videoHeight = 1080;
+  const handleMediaLoad = (e: React.SyntheticEvent) => {
+    const target = e.target as any;
+    if (target.tagName === 'VIDEO') {
+      setNaturalDimensions({ width: target.videoWidth, height: target.videoHeight });
+    } else if (target.tagName === 'IMG') {
+      setNaturalDimensions({ width: target.naturalWidth, height: target.naturalHeight });
+    }
+  };
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -28,9 +34,9 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({ name, streamData, stat
     // Clear previous frame
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-    // Calculate scale ratio based on actual canvas size vs video origin
-    const scaleX = canvas.width / videoWidth;
-    const scaleY = canvas.height / videoHeight;
+    // Calculate scale ratio based on actual canvas size vs natural dimensions
+    const scaleX = canvas.width / naturalDimensions.width;
+    const scaleY = canvas.height / naturalDimensions.height;
 
     streamData.objects.forEach(obj => {
       // Scale bounding box coordinates
@@ -41,20 +47,19 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({ name, streamData, stat
 
       // Draw vehicle box
       ctx.lineWidth = 2;
-      ctx.strokeStyle = obj.type === 'vehicle' ? '#3B82F6' : '#10B981';
+      const isPlate = obj.type === 'plate';
+      ctx.strokeStyle = isPlate ? '#10B981' : '#3B82F6';
       ctx.strokeRect(x, y, w, h);
 
       // Draw label background
-      ctx.fillStyle = obj.type === 'vehicle' ? 'rgba(59, 130, 246, 0.8)' : 'rgba(16, 185, 129, 0.8)';
-      ctx.fillRect(x, y - 24, w > 100 ? w : 100, 24);
+      ctx.fillStyle = isPlate ? 'rgba(16, 185, 129, 0.8)' : 'rgba(59, 130, 246, 0.8)';
+      ctx.fillRect(x, y - 24, w > 120 ? w : 120, 24);
 
       // Draw text
       ctx.fillStyle = '#FFFFFF';
-      ctx.font = '12px "Inter", sans-serif';
-      ctx.fontWeight = 'bold';
+      ctx.font = 'bold 12px "Inter", sans-serif';
       
-      let label = `${obj.type === 'vehicle' ? 'Xe' : 'Biển số'}`;
-      if (obj.track_id) label += ` ID:${obj.track_id}`;
+      let label = obj.type;
       if (obj.plate_text) label += ` [${obj.plate_text}]`;
       
       ctx.fillText(label, x + 4, y - 8);
@@ -82,6 +87,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({ name, streamData, stat
           loop 
           muted 
           controls={false}
+          onLoadedMetadata={handleMediaLoad}
           className="w-full h-full object-cover opacity-90"
         />
       );
@@ -93,6 +99,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({ name, streamData, stat
           ref={mediaRef as React.RefObject<HTMLImageElement>}
           src={source.url} 
           alt="Uploaded Source" 
+          onLoad={handleMediaLoad}
           className="w-full h-full object-cover opacity-90"
         />
       );
