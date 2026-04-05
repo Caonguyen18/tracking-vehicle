@@ -1,5 +1,5 @@
 import React, { useState, useRef } from 'react';
-import { Upload, Link2, FileVideo, Image as ImageIcon } from 'lucide-react';
+import { Upload, Link2 } from 'lucide-react';
 import { clsx } from "clsx";
 import { twMerge } from "tailwind-merge";
 
@@ -32,104 +32,93 @@ export const SourceSelector: React.FC<SourceSelectorProps> = ({ onSourceSelect }
     const type: SourceType = file.type.startsWith('video/') ? 'video' : 'image';
     const url = URL.createObjectURL(file);
     
-    onSourceSelect({
-      type,
-      url,
-      name: file.name,
-      file
-    });
+    onSourceSelect({ type, url, name: file.name, file });
   };
 
   const handleStreamSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!streamUrl) return;
     
-    onSourceSelect({
-      type: 'stream',
-      url: streamUrl,
-      name: streamUrl
-    });
+    onSourceSelect({ type: 'stream', url: streamUrl, name: streamUrl });
     setStreamUrl('');
   };
 
   return (
-    <div className="bg-dark-800/80 backdrop-blur-md rounded-xl border border-dark-700 p-5 mb-6">
-      <h3 className="text-lg font-semibold text-white mb-4 flex items-center">
-        <Upload className="w-5 h-5 mr-2 text-primary-400" />
-        Cấu hình nguồn đầu vào
-      </h3>
-      
-      <div className="flex space-x-1 mb-5 bg-dark-900/50 p-1 rounded-lg w-full max-w-sm">
-        <button
-          onClick={() => setActiveTab('upload')}
-          className={cn(
-            "flex-1 py-1.5 text-sm font-medium rounded-md transition-colors",
-            activeTab === 'upload' 
-              ? "bg-dark-700 text-white shadow-sm" 
-              : "text-slate-400 hover:text-slate-200"
-          )}
-        >
-          Tải lên File
-        </button>
-        <button
-          onClick={() => setActiveTab('stream')}
-          className={cn(
-            "flex-1 py-1.5 text-sm font-medium rounded-md transition-colors",
-            activeTab === 'stream' 
-              ? "bg-dark-700 text-white shadow-sm" 
-              : "text-slate-400 hover:text-slate-200"
-          )}
-        >
-          Đường dẫn Stream
-        </button>
-      </div>
-
-      {activeTab === 'upload' && (
-        <div 
-          onClick={() => fileInputRef.current?.click()}
-          className="w-full h-32 border-2 border-dashed border-dark-600 hover:border-primary-500/50 hover:bg-dark-700/30 rounded-xl flex flex-col items-center justify-center cursor-pointer transition-all group"
-        >
-          <div className="flex space-x-3 mb-2">
-            <div className="p-2 bg-dark-900 rounded-full group-hover:bg-primary-500/20 group-hover:text-primary-400 transition-colors">
-              <FileVideo className="w-6 h-6 text-slate-400 group-hover:text-primary-400" />
-            </div>
-            <div className="p-2 bg-dark-900 rounded-full group-hover:bg-accent-500/20 group-hover:text-accent-400 transition-colors">
-              <ImageIcon className="w-6 h-6 text-slate-400 group-hover:text-accent-400" />
-            </div>
-          </div>
-          <p className="text-sm text-slate-300 font-medium">Nhấn để tải lên video hoặc hình ảnh</p>
-          <p className="text-xs text-slate-500 mt-1">Hỗ trợ MP4, WebM, JPG, PNG</p>
-          <input 
-            type="file" 
-            ref={fileInputRef} 
-            onChange={handleFileChange} 
-            accept="video/*,image/*" 
-            className="hidden" 
-          />
-        </div>
-      )}
-
-      {activeTab === 'stream' && (
-        <form onSubmit={handleStreamSubmit} className="flex space-x-3">
-          <div className="relative flex-1">
-            <Link2 className="absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400 w-5 h-5" />
-            <input 
-              type="text" 
-              value={streamUrl}
-              onChange={(e) => setStreamUrl(e.target.value)}
-              placeholder="Nhập đường dẫn stream RTSP, HTTP, hoặc WebSocket..." 
-              className="w-full bg-dark-900 border border-dark-600 rounded-lg pl-10 pr-4 py-2.5 text-sm text-slate-200 focus:outline-none focus:border-primary-500 focus:ring-1 focus:ring-primary-500"
-            />
-          </div>
-          <button 
-            type="submit"
-            disabled={!streamUrl}
-            className="bg-primary-500 hover:bg-primary-600 disabled:opacity-50 disabled:cursor-not-allowed text-white px-5 py-2.5 rounded-lg text-sm font-medium transition-colors"
+    <div className="bg-dark-800/10 backdrop-blur-3xl rounded-2xl border border-white/5 p-1.5 overflow-hidden group w-full">
+      <div className="flex flex-col sm:flex-row items-center space-y-4 sm:space-y-0 sm:space-x-6">
+        {/* Compact Tabs */}
+        <div className="flex bg-black/40 backdrop-blur-md p-1 rounded-xl border border-white/5 w-full sm:w-auto">
+          <button
+            onClick={() => setActiveTab('upload')}
+            className={cn(
+              "px-4 py-2 text-[10px] font-black uppercase tracking-widest rounded-lg transition-all duration-300",
+              activeTab === 'upload' 
+                ? "bg-primary-500 text-white shadow-lg shadow-primary-500/20" 
+                : "text-slate-500 hover:text-slate-300"
+            )}
           >
-            Kết nối
+            Tải lên File
           </button>
-        </form>
-      )}
+          <button
+            onClick={() => setActiveTab('stream')}
+            className={cn(
+              "px-4 py-2 text-[10px] font-black uppercase tracking-widest rounded-lg transition-all duration-300",
+              activeTab === 'stream' 
+                ? "bg-primary-500 text-white shadow-lg shadow-primary-500/20" 
+                : "text-slate-500 hover:text-slate-300"
+            )}
+          >
+            Đường dẫn Stream
+          </button>
+        </div>
+
+        {/* Dynamic Content Bar */}
+        <div className="flex-1 w-full">
+          {activeTab === 'upload' ? (
+            <div className="flex items-center space-x-3">
+              <button 
+                onClick={() => fileInputRef.current?.click()}
+                className="bg-primary-500/10 hover:bg-primary-500/20 border border-primary-500/30 text-primary-400 px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all flex items-center group/btn"
+              >
+                <Upload className="w-3.5 h-3.5 mr-2 group-hover/btn:-translate-y-0.5 transition-transform" />
+                Chọn Video hoặc Hình ảnh
+              </button>
+              <span className="text-[10px] font-bold text-slate-500 hidden md:block uppercase tracking-widest">
+                MP4, WebM, JPG, PNG (Max 100MB)
+              </span>
+              <input 
+                type="file" 
+                ref={fileInputRef} 
+                onChange={handleFileChange} 
+                accept="video/*,image/*" 
+                className="hidden" 
+              />
+            </div>
+          ) : (
+            <form onSubmit={handleStreamSubmit} className="flex space-x-3 w-full">
+              <div className="relative flex-1">
+                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                  <Link2 className="text-primary-400 w-3.5 h-3.5" />
+                </div>
+                <input 
+                  type="text" 
+                  value={streamUrl}
+                  onChange={(e) => setStreamUrl(e.target.value)}
+                  placeholder="Nhập đường dẫn stream RTSP, HTTP, hoặc WebSocket..." 
+                  className="w-full bg-black/40 border border-white/5 rounded-xl pl-10 pr-4 py-2 text-xs text-white focus:outline-none focus:border-primary-500/50 transition-all font-medium placeholder:text-slate-600"
+                />
+              </div>
+              <button 
+                type="submit"
+                disabled={!streamUrl}
+                className="bg-primary-500 hover:bg-primary-600 disabled:opacity-30 text-white px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all shadow-lg shadow-primary-500/10"
+              >
+                Kết nối
+              </button>
+            </form>
+          )}
+        </div>
+      </div>
     </div>
   );
 };

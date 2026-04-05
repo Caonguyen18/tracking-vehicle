@@ -13,6 +13,7 @@ export interface Detection {
   confidence: number;
   plate_text?: string;
   plate_bbox?: BoundingBox;
+  plate_crop?: string;
 }
 
 export interface StreamFrame {
@@ -29,4 +30,15 @@ export interface PlateRecord {
   timestamp: number;
   confidence: number;
   image_url?: string;
+  plate_crop?: string;
+}
+
+export interface FrameResults {
+  timestamp: number;
+  detections: Detection[];
+}
+
+export interface VideoAnalysisResult {
+  duration: number;
+  results: FrameResults[];
 }

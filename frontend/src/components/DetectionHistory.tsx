@@ -5,53 +5,79 @@ import { Camera, Clock, CheckCircle } from 'lucide-react';
 
 export const DetectionHistory: React.FC<{ records: PlateRecord[] }> = ({ records }) => {
   return (
-    <div className="bg-dark-800 rounded-xl border border-dark-700 overflow-hidden flex flex-col h-full bg-opacity-70 backdrop-blur-md">
-      <div className="px-6 py-4 border-b border-dark-700 flex items-center justify-between">
-        <h2 className="text-lg font-semibold text-white flex items-center">
-          <HistoryIcon className="w-5 h-5 mr-2 text-primary-400" />
+    <div className="bg-dark-800/40 rounded-2xl border border-dark-700/50 overflow-hidden flex flex-col h-full backdrop-blur-xl shadow-2xl relative">
+      {/* Decorative gradient corner */}
+      <div className="absolute -top-12 -right-12 w-24 h-24 bg-primary-500/10 rounded-full blur-2xl pointer-events-none"></div>
+      
+      <div className="px-6 py-5 border-b border-dark-700/50 flex items-center justify-between bg-dark-800/40">
+        <h2 className="text-lg font-bold text-white flex items-center tracking-tight">
+          <HistoryIcon className="w-5 h-5 mr-3 text-primary-400 stroke-[2.5px]" />
           Lịch sử quét
         </h2>
-        <span className="text-xs font-medium bg-dark-700 text-slate-300 py-1 px-3 rounded-full">
-          Cập nhật trực tiếp
-        </span>
+        <div className="flex items-center space-x-2">
+          <div className="w-2 h-2 rounded-full bg-accent-500 animate-pulse shadow-[0_0_8px_rgba(16,185,129,0.6)]"></div>
+          <span className="text-[10px] uppercase font-bold text-slate-400 tracking-widest">
+            Live
+          </span>
+        </div>
       </div>
       
-      <div className="flex-1 overflow-y-auto px-4 py-2 space-y-3 custom-scroll">
+      <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4 custom-scroll">
         {records.length === 0 ? (
-          <div className="flex flex-col items-center justify-center h-full text-slate-500">
-            <Scan className="w-12 h-12 mb-3 opacity-20" />
-            <p className="text-sm">Đang đợi dữ liệu...</p>
+          <div className="flex flex-col items-center justify-center h-full text-slate-500 py-20">
+            <div className="relative mb-4">
+              <Scan className="w-16 h-16 opacity-10 animate-pulse" />
+              <div className="absolute inset-0 bg-primary-500/5 blur-xl rounded-full"></div>
+            </div>
+            <p className="text-sm font-medium tracking-wide">Đang đợi dữ liệu...</p>
           </div>
         ) : (
-          records.slice(0, 10).map((record) => (
-            <div key={record.id} className="bg-dark-900 border border-dark-700 rounded-xl p-4 flex flex-col hover:border-primary-500/50 transition-colors group relative overflow-hidden">
-              <div className="absolute top-0 left-0 w-1 h-full bg-gradient-to-b from-primary-400 to-accent-500 rounded-l-xl opacity-70 group-hover:opacity-100 transition-opacity"></div>
-              
-              <div className="flex justify-between items-start mb-3 ml-2">
-                <div>
-                  <div className="flex items-center space-x-2">
-                    <span className="text-xl font-mono font-bold text-white tracking-wider bg-dark-700 px-3 py-1 rounded-md shadow-inner border border-dark-600">
-                      {record.plate_text}
-                    </span>
-                    {record.confidence > 0.85 && (
-                      <CheckCircle className="w-4 h-4 text-accent-500" />
-                    )}
+          records.map((record, index) => (
+            <div 
+              key={record.id} 
+              className="group relative bg-dark-900/40 border border-dark-700/50 hover:border-primary-500/40 rounded-2xl p-4 transition-all duration-300 hover:shadow-[0_8px_30px_rgb(0,0,0,0.12)] hover:-translate-y-0.5"
+              style={{ animationDelay: `${index * 50}ms` }}
+            >
+              {/* Identification Pill */}
+              <div className="flex justify-between items-center mb-4">
+                <div className="flex items-center space-x-2">
+                  <div className="bg-primary-500/10 p-1.5 rounded-lg">
+                    <CheckCircle className="w-3.5 h-3.5 text-primary-400" />
                   </div>
+                  <span className="text-[10px] font-bold text-primary-400 uppercase tracking-widest">Biển số xe</span>
                 </div>
-                <div className="text-right">
-                  <span className="text-xs font-semibold px-2 py-1 rounded bg-accent-500/10 text-accent-400 shadow-[0_0_10px_rgba(16,185,129,0.2)]">
-                    {(record.confidence * 100).toFixed(1)}%
+                <div className="bg-accent-500/10 px-2 py-0.5 rounded-full border border-accent-500/20">
+                  <span className="text-[10px] font-black text-accent-400">
+                    {Math.round(record.confidence * 100)}% Match
                   </span>
                 </div>
               </div>
+
+              {/* Plate Display */}
+              <div className="bg-white/5 border border-white/5 rounded-xl p-3 mb-4 flex flex-col items-center justify-center relative overflow-hidden group-hover:bg-white/10 transition-colors">
+                <div className="absolute inset-0 bg-linear-to-r from-transparent via-white/5 to-transparent -translate-x-full group-hover:translate-x-full transition-transform duration-1000"></div>
+                
+                {record.plate_crop && (
+                  <img 
+                    src={`data:image/jpeg;base64,${record.plate_crop}`} 
+                    alt="Plate Crop" 
+                    className="w-full h-16 object-contain rounded-lg mb-3 opacity-70 group-hover:opacity-100 transition-opacity border border-white/10"
+                  />
+                )}
+
+                <span className="text-2xl font-mono font-black text-white tracking-[0.2em] drop-shadow-[0_0_10px_rgba(255,255,255,0.3)]">
+                  {record.plate_text}
+                </span>
+              </div>
               
-              <div className="flex items-center justify-between text-xs text-slate-400 mt-2 ml-2">
-                <div className="flex items-center">
-                  <Camera className="w-3.5 h-3.5 mr-1" />
-                  <span>{record.camera_id}</span>
+              {/* Meta Info */}
+              <div className="grid grid-cols-2 gap-2 text-[10px] font-bold uppercase tracking-wider text-slate-500">
+                <div className="flex items-center bg-dark-800/50 py-1.5 px-3 rounded-lg border border-dark-700/30">
+                  <Camera className="w-3 h-3 mr-2 text-slate-400" />
+                  <span className="truncate">{record.camera_id}</span>
                 </div>
-                <div className="flex items-center">
-                  <Clock className="w-3.5 h-3.5 mr-1" />
+                <div className="flex items-center bg-dark-800/50 py-1.5 px-3 rounded-lg border border-dark-700/30">
+                  <Clock className="w-3 h-3 mr-2 text-slate-400" />
                   <span>{format(new Date(record.timestamp * 1000), 'HH:mm:ss')}</span>
                 </div>
               </div>
