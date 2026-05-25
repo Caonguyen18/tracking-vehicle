@@ -23,34 +23,72 @@ app.add_middleware(
 )
 
 vehicle_model = YOLO('yolov8n.pt') 
-plate_model = YOLO('plate_model.pt')
+plate_model = YOLO('license_plate_detector.pt')
 
 reader = easyocr.Reader(['en'])
 
+# Từ điển ánh xạ để chuyển đổi ký tự từ repo detect_license_plate_and_OCR
+dict_char_to_int = {'O': '0', 'I': '1', 'J': '3', 'A': '4', 'G': '6', 'S': '5'}
+dict_int_to_char = {'0': 'O', '1': 'I', '3': 'J', '4': 'A', '6': 'G', '5': 'S'}
+
 def preprocess_plate(crop):
+    """
+    Tiền xử lý nâng cao: Phóng to 2x Cubic + Chuyển sang ảnh xám (Tốt nhất cho OCR)
+    """
     h, w = crop.shape[:2]
     if h == 0 or w == 0:
         return None
-    if h < 8 and w < 20:
-        return None
     
-    scale = max(1, 100 / h)
-    resized = cv2.resize(crop, (int(w * scale), int(h * scale)), 
-                         interpolation=cv2.INTER_CUBIC)
+    # Phóng to 2.0x với CUBIC (Tốt nhất cho OCR)
+    gray = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY)
+    resized = cv2.resize(gray, (int(w * 2), int(h * 2)), interpolation=cv2.INTER_CUBIC)
     
-    gray = cv2.cvtColor(resized, cv2.COLOR_BGR2GRAY)
+    return resized
+
+def read_license_plate(processed_crop):
+    """
+    OCR nâng cao: Dùng chế độ đoạn văn để xử lý biển số nhiều dòng (như xe máy).
+    """
+    if processed_crop is None:
+        return None, 0
+
+    # Nhận diện OCR với danh sách ký tự cho phép và chế độ đoạn văn
+    # paragraph=True giúp liên kết các ký tự trên nhiều dòng lại với nhau
+    detections = reader.readtext(processed_crop, 
+                                 allowlist='0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ',
+                                 paragraph=True,
+                                 mag_ratio=2.0)
     
-    thresh = cv2.adaptiveThreshold(
-        gray, 255,
-        cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
-        cv2.THRESH_BINARY, 11, 2
-    )
+    if not detections:
+        return None, 0
+
+    # Sắp xếp các nhận diện theo toạ độ Y để hỗ trợ biển số nhiều dòng
+    detections.sort(key=lambda x: x[0][0][1])
     
-    # Dilation để nối nét đứt
-    # kernel = np.ones((2, 2), np.uint8)
-    # thresh = cv2.dilate(thresh, kernel, iterations=1)
+    all_text = []
+    avg_score = 0
     
-    return thresh
+    for detection in detections:
+        # Dưới chế độ đoạn văn, nhận diện là (bbox, text) hoặc (bbox, text, score)
+        if len(detection) == 3:
+            bbox, text, score = detection
+        else:
+            bbox, text = detection
+            score = 0.9 # Mặc định
+            
+        # Làm sạch: chỉ giữ lại chữ cái và số
+        text = "".join([c for c in text.upper() if c.isalnum()])
+        if len(text) >= 2:
+            all_text.append(text)
+            avg_score += score
+            
+    if not all_text:
+        return None, 0
+        
+    final_text = "-".join(all_text)
+    final_score = avg_score / len(all_text)
+    
+    return final_text, final_score
 
 def get_best_plate_for_vehicle(vehicle_bbox, plate_detections):
     vx1, vy1, vx2, vy2 = vehicle_bbox
@@ -141,23 +179,21 @@ async def analyze_image(file: UploadFile = File(...)):
                         if plate_crop.size > 0:
                             processed = preprocess_plate(plate_crop)
                             if processed is not None:
-                                # Encode for debug visualization
+                                # Mã hóa ảnh để hiển thị debug
                                 _, buffer = cv2.imencode('.jpg', processed)
                                 plate_crop_base64 = base64.b64encode(buffer).decode('utf-8')
                                 
-                                ocr_results = reader.readtext(processed, detail=1, paragraph=False)
-                                # Lọc các kết quả OCR có độ tin cậy thấp
-                                words = [r[1] for r in ocr_results if r[2] > 0.2]
-                                detected_text = "".join(words).replace(" ", "").strip()
-                                if detected_text:
-                                    plate_text = detected_text.upper()
+                                ocr_text, ocr_score = read_license_plate(processed)
+                                if ocr_text:
+                                    plate_text = ocr_text.upper()
 
                     detections.append({
                         "type": str(label_vn),
                         "confidence": float(confidence),
                         "bbox": {"x": int(v_x1), "y": int(v_y1), "width": int(v_x2 - v_x1), "height": int(v_y2 - v_y1)},
                         "plate_text": str(plate_text) if plate_text else "[Không rõ]",
-                        "plate_crop": plate_crop_base64
+                        "plate_crop": plate_crop_base64,
+                        "plate_bbox": {"x": int(plate_bbox[0]), "y": int(plate_bbox[1]), "width": int(plate_bbox[2] - plate_bbox[0]), "height": int(plate_bbox[3] - plate_bbox[1])} if plate_bbox else None
                     })
 
         return {"status": "success", "detections": detections}
@@ -185,11 +221,11 @@ async def analyze_video(file: UploadFile = File(...)):
         total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
         duration = total_frames / fps if fps > 0 else 0
         
-        sample_rate_seconds = 0.2
+        sample_rate_seconds = 0.1
         frame_interval = max(1, int(fps * sample_rate_seconds))
         
-        tracker = DeepSort(max_age=3, n_init=3, nms_max_overlap=1.0, max_cosine_distance=0.3)
-        # track_id -> {text: string, processed: boolean, frames_seen: int, crop: base64}
+        tracker = DeepSort(max_age=8, n_init=2, nms_max_overlap=0.5, max_cosine_distance=0.3)
+        # track_id -> {text: chuỗi, processed: boolean, frames_seen: số nguyên, crop: base64}
         track_plate_memory = {}
         
         video_results = []
@@ -256,6 +292,13 @@ async def analyze_video(file: UploadFile = File(...)):
                     plate_text = mem["text"]
                     plate_crop_base64 = mem["crop"]
                     
+                    # Tìm plate_bbox mỗi frame để vẽ bounding box real-time
+                    current_plate_bbox = get_best_plate_for_vehicle([v_x1, v_y1, v_x2, v_y2], all_plates)
+                    plate_bbox_response = None
+                    if current_plate_bbox:
+                        pb_x1, pb_y1, pb_x2, pb_y2 = current_plate_bbox
+                        plate_bbox_response = {"x": pb_x1, "y": pb_y1, "width": pb_x2 - pb_x1, "height": pb_y2 - pb_y1}
+
                     # OCR một lần cho mỗi xe ổn định
                     if not mem["processed"]:
                         plate_bbox = get_best_plate_for_vehicle([v_x1, v_y1, v_x2, v_y2], all_plates)
@@ -270,19 +313,13 @@ async def analyze_video(file: UploadFile = File(...)):
                                     if plate_crop.size > 0:
                                         processed = preprocess_plate(plate_crop)
                                         if processed is not None:
-                                            # Encode for debug visualization
+                                            # Mã hóa ảnh để hiển thị debug
                                             _, buffer = cv2.imencode('.jpg', processed)
                                             plate_crop_base64 = base64.b64encode(buffer).decode('utf-8')
                                             track_plate_memory[track_id]["crop"] = plate_crop_base64
                                             
-                                            ocr_res = reader.readtext(processed, detail=1, paragraph=False,
-                                            allowlist='ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-')
-                                            if ocr_res:
-                                                h = processed.shape[0]
-                                                top_results = [r for r in ocr_res if r[0][0][1] < h * 0.7]
-                                                candidates = top_results if top_results else ocr_res
-                                                best = max(candidates, key=lambda x: x[2])
-                                                plate_text = best[1].upper().replace(" ", "")
+                                            plate_text, plate_score = read_license_plate(processed)
+                                            if plate_text:
                                                 track_plate_memory[track_id]["text"] = plate_text
                                                 track_plate_memory[track_id]["processed"] = True
                                             else:
@@ -300,7 +337,8 @@ async def analyze_video(file: UploadFile = File(...)):
                         "confidence": float(track.det_conf or 0.8),
                         "bbox": {"x": v_x1, "y": v_y1, "width": v_x2 - v_x1, "height": v_y2 - v_y1},
                         "plate_text": plate_text,
-                        "plate_crop": plate_crop_base64
+                        "plate_crop": plate_crop_base64,
+                        "plate_bbox": plate_bbox_response
                     })
                 
                 video_results.append({
@@ -327,3 +365,6 @@ async def analyze_video(file: UploadFile = File(...)):
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
+
+# Lệnh đã dùng để chạy backend:
+#cd backend && ./venv/bin/python3 main.py
