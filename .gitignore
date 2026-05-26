@@ -1,0 +1,44 @@
+# macOS System Files
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Python Virtual Environments
+backend/venv/
+backend/.venv/
+venv/
+.venv/
+env/
+ENV/
+
+# Python Cache & Compiled Files
+**/__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+backend/.cache/
+
+# YOLO & AI Model Weights (Large Files)
+*.pt
+backend/*.pt
+yolov8n.pt
+license_plate_detector.pt
+plate_model.pt
+
+# Node / Frontend Dependencies
+node_modules/
+frontend/node_modules/
+dist/
+build/
+.svelte-kit/
+.next/
+
+# Local Environment Variables
+.env
+.env.local
+.env.*.local
+
+# Logs
+*.log
+backend/backend.log
