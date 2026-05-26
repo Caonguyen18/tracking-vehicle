@@ -26,11 +26,14 @@ export interface StreamFrame {
 export interface PlateRecord {
   id: string;
   plate_text: string;
+  vehicle_type: string;
   camera_id: string;
   timestamp: number;
   confidence: number;
   image_url?: string;
   plate_crop?: string;
+  video_start_time?: number;
+  video_duration?: number;
 }
 
 export interface FrameResults {

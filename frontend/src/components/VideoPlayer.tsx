@@ -8,9 +8,10 @@ interface VideoPlayerProps {
   status: 'connecting' | 'live' | 'offline';
   source: MediaSource | null;
   videoAnalysis?: VideoAnalysisResult | null;
+  seekTo?: number;
 }
 
-export const VideoPlayer: React.FC<VideoPlayerProps> = ({ streamData, status, source, videoAnalysis }) => {
+export const VideoPlayer: React.FC<VideoPlayerProps> = ({ streamData, status, source, videoAnalysis, seekTo }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const mediaRef = useRef<HTMLVideoElement | HTMLImageElement>(null);
   const [naturalDimensions, setNaturalDimensions] = useState({ width: 1920, height: 1080 });
@@ -18,6 +19,20 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({ streamData, status, so
   const [playbackRate, setPlaybackRate] = useState(1);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
+
+  // Handle external seek requests
+  useEffect(() => {
+    const video = mediaRef.current;
+    if (video instanceof HTMLVideoElement && seekTo !== undefined && seekTo !== null) {
+      video.currentTime = seekTo;
+      setCurrentTime(seekTo);
+      // Auto-play when jumping if paused
+      if (video.paused) {
+        video.play();
+        setIsPlaying(true);
+      }
+    }
+  }, [seekTo]);
 
   const formatTime = (seconds: number) => {
     const mins = Math.floor(seconds / 60);
@@ -263,6 +278,31 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({ streamData, status, so
           ctx.fillStyle = '#FFFFFF';
           ctx.textBaseline = 'middle';
           ctx.fillText(labelText, x + 8, y - 18);
+
+          // Draw Plate Bounding Box (green corner brackets)
+          if (obj.plate_bbox) {
+            const px = ((obj.plate_bbox.x / naturalDimensions.width) * displayWidth + offsetX) * canvasScaleX;
+            const py = ((obj.plate_bbox.y / naturalDimensions.height) * displayHeight + offsetY) * canvasScaleY;
+            const pw = (obj.plate_bbox.width / naturalDimensions.width) * displayWidth * canvasScaleX;
+            const ph = (obj.plate_bbox.height / naturalDimensions.height) * displayHeight * canvasScaleY;
+
+            const plateColor = '#10B981';
+            ctx.lineWidth = 2;
+            ctx.strokeStyle = plateColor;
+            ctx.lineCap = 'round';
+            ctx.shadowBlur = 8;
+            ctx.shadowColor = plateColor;
+
+            const pCorner = Math.min(12, pw * 0.25, ph * 0.25);
+            ctx.beginPath(); ctx.moveTo(px, py + pCorner); ctx.lineTo(px, py); ctx.lineTo(px + pCorner, py); ctx.stroke();
+            ctx.beginPath(); ctx.moveTo(px + pw - pCorner, py); ctx.lineTo(px + pw, py); ctx.lineTo(px + pw, py + pCorner); ctx.stroke();
+            ctx.beginPath(); ctx.moveTo(px + pw, py + ph - pCorner); ctx.lineTo(px + pw, py + ph); ctx.lineTo(px + pw - pCorner, py + ph); ctx.stroke();
+            ctx.beginPath(); ctx.moveTo(px + pCorner, py + ph); ctx.lineTo(px, py + ph); ctx.lineTo(px, py + ph - pCorner); ctx.stroke();
+
+            ctx.shadowBlur = 0;
+            ctx.fillStyle = 'rgba(16, 185, 129, 0.08)';
+            ctx.fillRect(px, py, pw, ph);
+          }
         });
       } else if (!closestResults) {
         ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -341,6 +381,31 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({ streamData, status, so
       ctx.fill();
       ctx.fillStyle = '#FFFFFF';
       ctx.fillText(labelText, x + 8, y - 18);
+
+      // Draw Plate Bounding Box (green corner brackets)
+      if (obj.plate_bbox) {
+        const px = ((obj.plate_bbox.x / naturalDimensions.width) * displayWidth + offsetX) * canvasScaleX;
+        const py = ((obj.plate_bbox.y / naturalDimensions.height) * displayHeight + offsetY) * canvasScaleY;
+        const pw = (obj.plate_bbox.width / naturalDimensions.width) * displayWidth * canvasScaleX;
+        const ph = (obj.plate_bbox.height / naturalDimensions.height) * displayHeight * canvasScaleY;
+
+        const plateColor = '#10B981';
+        ctx.lineWidth = 2;
+        ctx.strokeStyle = plateColor;
+        ctx.lineCap = 'round';
+        ctx.shadowBlur = 8;
+        ctx.shadowColor = plateColor;
+
+        const pCorner = Math.min(12, pw * 0.25, ph * 0.25);
+        ctx.beginPath(); ctx.moveTo(px, py + pCorner); ctx.lineTo(px, py); ctx.lineTo(px + pCorner, py); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(px + pw - pCorner, py); ctx.lineTo(px + pw, py); ctx.lineTo(px + pw, py + pCorner); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(px + pw, py + ph - pCorner); ctx.lineTo(px + pw, py + ph); ctx.lineTo(px + pw - pCorner, py + ph); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(px + pCorner, py + ph); ctx.lineTo(px, py + ph); ctx.lineTo(px, py + ph - pCorner); ctx.stroke();
+
+        ctx.shadowBlur = 0;
+        ctx.fillStyle = 'rgba(16, 185, 129, 0.08)';
+        ctx.fillRect(px, py, pw, ph);
+      }
     });
   }, [streamData, naturalDimensions]);
 

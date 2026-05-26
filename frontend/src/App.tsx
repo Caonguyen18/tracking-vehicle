@@ -1,34 +1,40 @@
 import { useState, useEffect } from 'react';
 import { VideoPlayer } from './components/VideoPlayer';
 import { DetectionHistory } from './components/DetectionHistory';
+import { AnalyticsDashboard } from './components/AnalyticsDashboard';
 import { SourceSelector, type MediaSource } from './components/SourceSelector';
-import { Car, Bike, Bus, Truck } from 'lucide-react';
+import { Car, Bike, Bus, Truck, LayoutList, BarChart3 } from 'lucide-react';
 import type { PlateRecord, StreamFrame, VideoAnalysisResult, Detection } from './types';
 
 export default function App() {
   const [streamData, setStreamData] = useState<StreamFrame | null>(null);
   const [history, setHistory] = useState<PlateRecord[]>([]);
+  const [allRecords, setAllRecords] = useState<PlateRecord[]>([]);
   const [mediaSource, setMediaSource] = useState<MediaSource | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
   const [videoAnalysis, setVideoAnalysis] = useState<VideoAnalysisResult | null>(null);
+  const [seekTimestamp, setSeekTimestamp] = useState<number | null>(null);
+  const [activeTab, setActiveTab] = useState<'history' | 'analytics'>('history');
 
-  // Calculate peak stats from analysis for the header summary
-  const peakStats = videoAnalysis?.results.reduce((acc, frame) => {
-    const frameStats: Record<string, number> = {};
-    frame.detections.forEach((det: Detection) => {
-      frameStats[det.type] = (frameStats[det.type] || 0) + 1;
-    });
-    Object.keys(frameStats).forEach(type => {
-      acc[type] = Math.max(acc[type] || 0, frameStats[type]);
-    });
+  const handleRecordClick = (timestamp: number) => {
+    // We add a tiny offset or use a state object if we want to support clicking the same record twice
+    // but for now, simple timestamp is fine.
+    setSeekTimestamp(timestamp);
+    // Reset after a short delay so the same timestamp can be clicked again
+    setTimeout(() => setSeekTimestamp(null), 100);
+  };
+
+  // Calculate total stats from all tracked records for the header summary
+  const totalStats = allRecords.reduce((acc, rec) => {
+    acc[rec.vehicle_type] = (acc[rec.vehicle_type] || 0) + 1;
     return acc;
-  }, {} as Record<string, number>) || {};
+  }, {} as Record<string, number>);
 
   const summaryItems = [
-    { label: 'Ô tô', icon: Car, color: 'text-blue-400', value: peakStats['Ô tô'] },
-    { label: 'Xe máy', icon: Bike, color: 'text-emerald-400', value: peakStats['Xe máy'] },
-    { label: 'Xe buýt', icon: Bus, color: 'text-amber-400', value: peakStats['Xe buýt'] },
-    { label: 'Xe tải', icon: Truck, color: 'text-purple-400', value: peakStats['Xe tải'] },
+    { label: 'Ô tô', icon: Car, color: 'text-blue-400', value: totalStats['Ô tô'] },
+    { label: 'Xe máy', icon: Bike, color: 'text-emerald-400', value: totalStats['Xe máy'] },
+    { label: 'Xe buýt', icon: Bus, color: 'text-amber-400', value: totalStats['Xe buýt'] },
+    { label: 'Xe tải', icon: Truck, color: 'text-purple-400', value: totalStats['Xe tải'] },
   ];
 
   // Handle source selection and trigger analysis
@@ -39,6 +45,8 @@ export default function App() {
     setIsProcessing(true);
     setVideoAnalysis(null);
     setStreamData(null);
+    setAllRecords([]);
+    setHistory([]);
 
     const abortController = new AbortController();
 
@@ -78,23 +86,26 @@ export default function App() {
           bbox: det.bbox,
           confidence: det.confidence,
           plate_text: det.plate_text,
-          plate_crop: det.plate_crop
+          plate_crop: det.plate_crop,
+          plate_bbox: det.plate_bbox
         }))
       };
 
       setStreamData(frame);
 
-      // Batch history updates
-      const newRecords = data.detections
-        .filter((det: Detection) => det.plate_text && det.plate_text !== "[Không rõ]")
-        .map((det: Detection) => ({
-          id: `rec_${Date.now()}_${Math.random()}`,
-          plate_text: det.plate_text!,
-          plate_crop: det.plate_crop,
-          camera_id: 'LOCAL-UPLOAD',
-          timestamp: Date.now() / 1000,
-          confidence: det.confidence
-        }));
+      const allParsedRecords: PlateRecord[] = data.detections.map((det: Detection, idx: number) => ({
+        id: `all_rec_${Date.now()}_${idx}`,
+        plate_text: det.plate_text || '',
+        vehicle_type: det.type,
+        plate_crop: det.plate_crop,
+        camera_id: 'LOCAL-UPLOAD',
+        timestamp: Date.now() / 1000,
+        confidence: det.confidence
+      }));
+      setAllRecords(prev => [...allParsedRecords, ...prev]);
+
+      // Batch history updates (only for those with plates)
+      const newRecords: PlateRecord[] = allParsedRecords.filter(rec => rec.plate_text && rec.plate_text !== "[Không rõ]");
       
       if (newRecords.length > 0) {
         setHistory(prev => [...newRecords, ...prev].slice(0, 50));
@@ -125,30 +136,54 @@ export default function App() {
       const data = await response.json() as VideoAnalysisResult;
       setVideoAnalysis(data);
 
-      // Populate history from video tracks
-      const uniqueTracks = new Map<number, Detection>();
+      // Populate history from video tracks with timing metadata
+      const trackAggregates = new Map<number, {
+        bestDet: Detection;
+        startTime: number;
+        endTime: number;
+      }>();
+
       data.results.forEach(frame => {
         frame.detections.forEach((det: Detection) => {
-          if (det.plate_text && det.plate_text !== "[Không rõ]") {
-            // Keep the one with highest confidence or the first one found with a crop
-            const existing = uniqueTracks.get(det.track_id);
-            if (!existing || (det.plate_crop && !existing.plate_crop)) {
-              uniqueTracks.set(det.track_id, det);
+          const existing = trackAggregates.get(det.track_id);
+          if (!existing) {
+            trackAggregates.set(det.track_id, {
+              bestDet: det,
+              startTime: frame.timestamp,
+              endTime: frame.timestamp
+            });
+          } else {
+            // Update duration
+            existing.startTime = Math.min(existing.startTime, frame.timestamp);
+            existing.endTime = Math.max(existing.endTime, frame.timestamp);
+            
+            // Update best detection (prefer one with plate_crop and higher confidence)
+            const currentScore = (det.plate_crop ? 1 : 0) + det.confidence;
+            const existingScore = (existing.bestDet.plate_crop ? 1 : 0) + existing.bestDet.confidence;
+            
+            if (currentScore > existingScore) {
+              existing.bestDet = det;
             }
           }
         });
       });
 
-      const videoRecords: PlateRecord[] = Array.from(uniqueTracks.values()).map((det: Detection) => ({
-        id: `rec_v_${det.track_id}`,
-        plate_text: det.plate_text!,
-        plate_crop: det.plate_crop,
+      const allVideoRecords: PlateRecord[] = Array.from(trackAggregates.values()).map(({ bestDet, startTime, endTime }) => ({
+        id: `rec_v_${bestDet.track_id}`,
+        plate_text: bestDet.plate_text || '',
+        vehicle_type: bestDet.type,
+        plate_crop: bestDet.plate_crop,
         camera_id: 'VIDEO-ANALYSIS',
         timestamp: Date.now() / 1000,
-        confidence: det.confidence
+        confidence: bestDet.confidence,
+        video_start_time: startTime,
+        video_duration: endTime - startTime
       }));
 
-      setHistory(videoRecords);
+      setAllRecords(allVideoRecords);
+
+      const videoHistoryRecords = allVideoRecords.filter(rec => rec.plate_text && rec.plate_text !== "[Không rõ]");
+      setHistory(videoHistoryRecords);
       
     } catch (error: any) {
       if (error.name !== 'AbortError') {
@@ -207,14 +242,49 @@ export default function App() {
                   status={mediaSource && mediaSource.type === 'stream' ? 'live' : mediaSource ? 'live' : 'offline'}
                   source={mediaSource}
                   videoAnalysis={videoAnalysis}
+                  seekTo={seekTimestamp ?? undefined}
                 />
               </div>
             </div>
 
             {/* Side Panel: Detection History & Traffic Summary */}
-            <div className="lg:col-span-1 flex flex-col gap-6 overflow-y-auto pr-2 custom-scroll">
-              <div className="flex-1 min-h-[300px]">
-                <DetectionHistory records={history} />
+            <div className="lg:col-span-1 flex flex-col gap-4 min-h-[300px]">
+              {/* Tab Switcher */}
+              <div className="flex items-center p-1 bg-dark-800/40 border border-dark-700/50 rounded-xl backdrop-blur-xl">
+                <button
+                  onClick={() => setActiveTab('history')}
+                  className={`flex-1 flex items-center justify-center space-x-2 py-2 px-3 rounded-lg text-xs font-bold transition-all ${
+                    activeTab === 'history' 
+                    ? 'bg-primary-500/20 text-primary-400 shadow-[0_0_15px_rgba(59,130,246,0.1)]' 
+                    : 'text-slate-500 hover:text-slate-300 hover:bg-white/5'
+                  }`}
+                >
+                  <LayoutList className="w-4 h-4" />
+                  <span>Lịch sử</span>
+                </button>
+                <button
+                  onClick={() => setActiveTab('analytics')}
+                  className={`flex-1 flex items-center justify-center space-x-2 py-2 px-3 rounded-lg text-xs font-bold transition-all ${
+                    activeTab === 'analytics' 
+                    ? 'bg-primary-500/20 text-primary-400 shadow-[0_0_15px_rgba(59,130,246,0.1)]' 
+                    : 'text-slate-500 hover:text-slate-300 hover:bg-white/5'
+                  }`}
+                >
+                  <BarChart3 className="w-4 h-4" />
+                  <span>Thống kê</span>
+                </button>
+              </div>
+
+              {/* Tab Content */}
+              <div className="flex-1 min-h-0 relative">
+                {activeTab === 'history' ? (
+                  <DetectionHistory 
+                    records={history} 
+                    onRecordClick={handleRecordClick}
+                  />
+                ) : (
+                  <AnalyticsDashboard records={allRecords} />
+                )}
               </div>
             </div>
           </div>
