@@ -1,7 +1,7 @@
 import React from 'react';
 import { format } from 'date-fns';
 import type { PlateRecord } from '../types';
-import { Camera, Clock, Download, Car, Bike, Bus, Truck, Info, Timer, Hourglass, Search, Filter } from 'lucide-react';
+import { Camera, Clock, Download, Car, Bike, Bus, Truck, Info, Timer, Hourglass, Search } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { saveAs } from 'file-saver';
 
@@ -18,6 +18,7 @@ export const DetectionHistory: React.FC<{
   const [searchTerm, setSearchTerm] = React.useState('');
   const [typeFilter, setTypeFilter] = React.useState<string>('all');
 
+  // Lọc theo từ khoá tìm kiếm (biển số) và theo loại xe đang chọn
   const filteredRecords = React.useMemo(() => {
     return records.filter(record => {
       const matchesSearch = record.plate_text.toLowerCase().includes(searchTerm.toLowerCase());
@@ -31,6 +32,7 @@ export const DetectionHistory: React.FC<{
     return Array.from(types);
   }, [records]);
 
+  // Xuất danh sách (sau khi lọc) ra file Excel .xlsx ngay tại trình duyệt
   const exportToExcel = () => {
     if (records.length === 0) return;
 

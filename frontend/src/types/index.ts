@@ -34,6 +34,12 @@ export interface PlateRecord {
   plate_crop?: string;
   video_start_time?: number;
   video_duration?: number;
+  // Vị trí xe ở frame đầu/cuối của track (chỉ có ở video) — dùng để ghép
+  // lại các track của cùng một xe khi DeepSort mất dấu rồi bắt lại.
+  first_bbox?: BoundingBox;
+  last_bbox?: BoundingBox;
+  // Số frame (đã lấy mẫu) mà track xuất hiện — dùng để lọc track thoáng qua/giả.
+  frames_seen?: number;
 }
 
 export interface FrameResults {

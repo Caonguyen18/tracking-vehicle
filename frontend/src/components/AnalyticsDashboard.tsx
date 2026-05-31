@@ -16,6 +16,7 @@ const COLORS = {
 };
 
 export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({ records }) => {
+  // Đếm số xe theo từng loại, sắp xếp giảm dần (dữ liệu cho biểu đồ tròn)
   const typeData = useMemo(() => {
     const counts = records.reduce((acc, rec) => {
       const type = rec.vehicle_type || 'Khác';
@@ -29,15 +30,15 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({ records 
     })).sort((a, b) => b.value - a.value);
   }, [records]);
 
+  // Gom số xe theo từng khoảng 10 giây (dữ liệu cho biểu đồ lưu lượng)
   const timelineData = useMemo(() => {
     if (records.length === 0) return [];
 
-    // Simple binning logic: group by 10-second intervals based on start time
     const bins = new Map<number, number>();
     records.forEach(rec => {
-      // Use video_start_time if available (for videos), otherwise use general timestamp
+      // Ưu tiên mốc thời gian trong video; nếu là ảnh thì dùng timestamp quét
       const timeRef = rec.video_start_time ?? rec.timestamp;
-      const bin = Math.floor(timeRef / 10) * 10; 
+      const bin = Math.floor(timeRef / 10) * 10; // làm tròn xuống bội số của 10s
       bins.set(bin, (bins.get(bin) || 0) + 1);
     });
 
@@ -58,7 +59,6 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({ records 
   }, [records]);
 
   const topVehicle = typeData.length > 0 ? typeData[0].name : '-';
-  const peakTrafficCount = timelineData.length > 0 ? Math.max(...timelineData.map(d => d.count)) : 0;
   const totalCount = records.length;
 
   return (

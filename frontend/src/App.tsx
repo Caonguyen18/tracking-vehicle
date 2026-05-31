@@ -4,7 +4,8 @@ import { DetectionHistory } from './components/DetectionHistory';
 import { AnalyticsDashboard } from './components/AnalyticsDashboard';
 import { SourceSelector, type MediaSource } from './components/SourceSelector';
 import { Car, Bike, Bus, Truck, LayoutList, BarChart3 } from 'lucide-react';
-import type { PlateRecord, StreamFrame, VideoAnalysisResult, Detection } from './types';
+import type { PlateRecord, StreamFrame, VideoAnalysisResult, Detection, BoundingBox } from './types';
+import { dedupeRecordsByPlate, stitchPlatelessRecords, hasValidPlate } from './utils/plate';
 
 export default function App() {
   const [streamData, setStreamData] = useState<StreamFrame | null>(null);
@@ -16,11 +17,10 @@ export default function App() {
   const [seekTimestamp, setSeekTimestamp] = useState<number | null>(null);
   const [activeTab, setActiveTab] = useState<'history' | 'analytics'>('history');
 
+  // Bấm vào một bản ghi -> tua video tới thời điểm xe xuất hiện.
+  // Reset về null sau 100ms để có thể bấm lại cùng một mốc thời gian.
   const handleRecordClick = (timestamp: number) => {
-    // We add a tiny offset or use a state object if we want to support clicking the same record twice
-    // but for now, simple timestamp is fine.
     setSeekTimestamp(timestamp);
-    // Reset after a short delay so the same timestamp can be clicked again
     setTimeout(() => setSeekTimestamp(null), 100);
   };
 
@@ -102,11 +102,14 @@ export default function App() {
         timestamp: Date.now() / 1000,
         confidence: det.confidence
       }));
-      setAllRecords(prev => [...allParsedRecords, ...prev]);
+
+      // Gộp các xe trùng biển số -> không đếm lại, không thêm trùng vào thống kê
+      const dedupedRecords = dedupeRecordsByPlate(allParsedRecords);
+      setAllRecords(prev => [...dedupedRecords, ...prev]);
 
       // Batch history updates (only for those with plates)
-      const newRecords: PlateRecord[] = allParsedRecords.filter(rec => rec.plate_text && rec.plate_text !== "[Không rõ]");
-      
+      const newRecords: PlateRecord[] = dedupedRecords.filter(rec => hasValidPlate(rec.plate_text));
+
       if (newRecords.length > 0) {
         setHistory(prev => [...newRecords, ...prev].slice(0, 50));
       }
@@ -141,6 +144,9 @@ export default function App() {
         bestDet: Detection;
         startTime: number;
         endTime: number;
+        firstBbox: BoundingBox;
+        lastBbox: BoundingBox;
+        framesSeen: number;
       }>();
 
       data.results.forEach(frame => {
@@ -150,17 +156,27 @@ export default function App() {
             trackAggregates.set(det.track_id, {
               bestDet: det,
               startTime: frame.timestamp,
-              endTime: frame.timestamp
+              endTime: frame.timestamp,
+              firstBbox: det.bbox,
+              lastBbox: det.bbox,
+              framesSeen: 1
             });
           } else {
-            // Update duration
-            existing.startTime = Math.min(existing.startTime, frame.timestamp);
-            existing.endTime = Math.max(existing.endTime, frame.timestamp);
-            
+            existing.framesSeen += 1;
+            // Cập nhật vị trí đầu/cuối theo thời gian (results đã theo thứ tự frame)
+            if (frame.timestamp < existing.startTime) {
+              existing.startTime = frame.timestamp;
+              existing.firstBbox = det.bbox;
+            }
+            if (frame.timestamp > existing.endTime) {
+              existing.endTime = frame.timestamp;
+              existing.lastBbox = det.bbox;
+            }
+
             // Update best detection (prefer one with plate_crop and higher confidence)
             const currentScore = (det.plate_crop ? 1 : 0) + det.confidence;
             const existingScore = (existing.bestDet.plate_crop ? 1 : 0) + existing.bestDet.confidence;
-            
+
             if (currentScore > existingScore) {
               existing.bestDet = det;
             }
@@ -168,7 +184,7 @@ export default function App() {
         });
       });
 
-      const allVideoRecords: PlateRecord[] = Array.from(trackAggregates.values()).map(({ bestDet, startTime, endTime }) => ({
+      const allVideoRecords: PlateRecord[] = Array.from(trackAggregates.values()).map(({ bestDet, startTime, endTime, firstBbox, lastBbox, framesSeen }) => ({
         id: `rec_v_${bestDet.track_id}`,
         plate_text: bestDet.plate_text || '',
         vehicle_type: bestDet.type,
@@ -177,12 +193,26 @@ export default function App() {
         timestamp: Date.now() / 1000,
         confidence: bestDet.confidence,
         video_start_time: startTime,
-        video_duration: endTime - startTime
+        video_duration: endTime - startTime,
+        first_bbox: firstBbox,
+        last_bbox: lastBbox,
+        frames_seen: framesSeen
       }));
 
-      setAllRecords(allVideoRecords);
+      // Gộp xe trùng biển số (bị mất dấu rồi bắt lại) -> mỗi xe chỉ tính một lần.
+      // Sau đó ghép tiếp các xe KHÔNG có biển số bị mất dấu rồi bắt lại
+      // (dựa theo thời gian liền kề + vị trí gần nhau) để không đếm trùng.
+      const merged = stitchPlatelessRecords(dedupeRecordsByPlate(allVideoRecords));
 
-      const videoHistoryRecords = allVideoRecords.filter(rec => rec.plate_text && rec.plate_text !== "[Không rõ]");
+      // Lọc track thoáng qua (xuất hiện quá ít frame) -> thường là detection
+      // giả/phân mảnh, không phải xe thật. Bản ghi có biển hợp lệ luôn được giữ.
+      const MIN_TRACK_FRAMES = 3;
+      const dedupedRecords = merged.filter(
+        rec => hasValidPlate(rec.plate_text) || (rec.frames_seen ?? 0) >= MIN_TRACK_FRAMES
+      );
+      setAllRecords(dedupedRecords);
+
+      const videoHistoryRecords = dedupedRecords.filter(rec => hasValidPlate(rec.plate_text));
       setHistory(videoHistoryRecords);
       
     } catch (error: any) {
